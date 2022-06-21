@@ -164,28 +164,6 @@ public final class RemoteOptions extends OptionsBase {
   public List<Entry<String, String>> remoteCacheHeaders;
 
   @Option(
-      name = "remote_cache_aws_id",
-      defaultValue = "null",
-      documentationCategory = OptionDocumentationCategory.REMOTE,
-      effectTags = {OptionEffectTag.UNKNOWN},
-      help =
-          "Specify a header that will be included in cache requests: "
-              + "--remote_cache_aws_id=Name=Value. "
-      )
-  public String remoteCacheAwsId;
-
-  @Option(
-      name = "remote_cache_aws_secret",
-      defaultValue = "null",
-      documentationCategory = OptionDocumentationCategory.REMOTE,
-      effectTags = {OptionEffectTag.UNKNOWN},
-      help =
-          "Specify a header that will be included in cache requests: "
-              + "--remote_cache_aws_id=Name=Value. "
-      )
-  public String remoteCacheAwsSecret;
-
-  @Option(
       name = "remote_exec_header",
       converter = Converters.AssignmentConverter.class,
       defaultValue = "null",
@@ -617,7 +595,6 @@ public final class RemoteOptions extends OptionsBase {
 
   /** Returns {@code true} if remote cache or disk cache is enabled. */
   public boolean isRemoteCacheEnabled() {
-    System.err.println("isRemoteCacheEnabled");
     return !Strings.isNullOrEmpty(remoteCache)
         || !(diskCache == null || diskCache.isEmpty())
         || isRemoteExecutionEnabled();
@@ -636,7 +613,6 @@ public final class RemoteOptions extends OptionsBase {
     boolean hasExecProperties = !remoteDefaultExecProperties.isEmpty();
     boolean hasPlatformProperties = !remoteDefaultPlatformProperties.isEmpty();
 
-    System.err.println("getRemoteDefaultExecProperties");
     if (hasExecProperties && hasPlatformProperties) {
       throw new UserExecException(
           createFailureDetail(
