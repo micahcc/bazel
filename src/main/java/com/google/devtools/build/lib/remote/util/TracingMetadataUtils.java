@@ -35,6 +35,134 @@ import java.util.List;
 import java.util.Map.Entry;
 import javax.annotation.Nullable;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import io.grpc.ForwardingClientCall.SimpleForwardingClientCall;
+import io.grpc.ClientCall;
+import io.grpc.MethodDescriptor;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import java.util.Base64;
+import java.util.Calendar;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+import java.util.TimeZone;
+
+
+final class AwsCredentialsClientInterceptor implements ClientInterceptor {
+
+    private final String awsId;
+    private final String awsSecret;
+
+    static private String hmacSha1(String key, String data) {
+
+        try {
+            Mac mac = Mac.getInstance("HmacSHA1");
+            SecretKeySpec secret = new SecretKeySpec(key.getBytes(),"HmacSHA1");
+            mac.init(secret);
+            byte[] digest = mac.doFinal(data.getBytes());
+            String out = Base64.getEncoder().encodeToString(digest);
+            System.out.println(key);
+            System.out.println(data);
+            System.out.println(out);
+            return out;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+    }
+
+    static private String getServerTime() {
+        Calendar calendar = Calendar.getInstance();
+        SimpleDateFormat dateFormat = new SimpleDateFormat(
+                "EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+        dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+        return dateFormat.format(calendar.getTime());
+    }
+
+
+    // Non private to avoid synthetic class
+    AwsCredentialsClientInterceptor(String awsId, String awsSecret) {
+      Preconditions.checkNotNull(awsId);
+      Preconditions.checkNotNull(awsSecret);
+      this.awsId = awsId;
+      this.awsSecret = awsSecret;
+    }
+
+    @Override
+    public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+            MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+            System.out.println(method);
+            System.out.println(callOptions);
+            System.out.println(next);
+        return new HeaderAttachingClientCall<>(next.newCall(method, callOptions));
+            }
+
+    private final class HeaderAttachingClientCall<ReqT, RespT>
+            extends SimpleForwardingClientCall<ReqT, RespT> {
+
+            //private final String method;
+            //private final String uri;
+
+            // Non private to avoid synthetic class
+            HeaderAttachingClientCall(ClientCall<ReqT, RespT> call) {
+                super(call);
+            }
+
+            @Override
+            public void start(Listener<RespT> responseListener, Metadata headers) {
+            System.out.println(headers);
+
+                // add header:
+                // x-amz-date
+                String dateStr = getServerTime();
+                headers.put( Metadata.Key.of("x-amz-date", Metadata.ASCII_STRING_MARSHALLER),dateStr);
+
+                String toHash;
+                 //   StringToSign = HTTP-Verb + "\n" +
+                 //   Content-MD5 + "\n" +
+                 //   Content-Type + "\n" +
+                 //   Date + "\n" +
+                 //   CanonicalizedAmzHeaders +
+                 //   CanonicalizedResource;
+
+                String method = "GET";
+                String uri = "/hello";
+                if(method == "GET") {
+                    // GET\n
+                    // \n
+                    // \n
+                    // Tue, 27 Mar 2007 19:36:42 +0000\n
+                    // /photos/blob
+                    toHash = "GET\n\n\n" + dateStr + uri;
+                } else if(method == "PUT") {
+                 // PUT\n
+                 // \n
+                 // application/octet-stream\n
+                 // Tue, 27 Mar 2007 21:15:45 +0000\n
+                 // /photos/blob
+                 toHash = "PUT\n\napplication/octet-stream\n" + dateStr + uri;
+                }  else {
+                    toHash = "";
+                }
+
+                System.out.println(toHash);
+                String sigStr = hmacSha1(awsSecret, toHash);
+                // Signature = Base64(
+                //  HMAC-SHA1(
+                //     UTF-8-Encoding-Of(YourSecretAccessKey),
+                //     UTF-8-Encoding-Of( StringToSign )
+                //  )
+                // );
+                // Authorization = "AWS" + " " + AWSAccessKeyId + ":" + Signature;
+                System.out.println("AWS + " + awsId + ":" + sigStr);
+
+                headers.put( Metadata.Key.of("AWS " + awsId, Metadata.ASCII_STRING_MARSHALLER), sigStr);
+                super.start(responseListener, headers);
+            }
+    }
+}
+
 /** Utility functions to handle Metadata for remote Grpc calls. */
 public class TracingMetadataUtils {
 
@@ -106,6 +234,11 @@ public class TracingMetadataUtils {
 
   public static ClientInterceptor attachMetadataInterceptor(RequestMetadata requestMetadata) {
     return MetadataUtils.newAttachHeadersInterceptor(headersFromRequestMetadata(requestMetadata));
+  }
+
+
+  public static ClientInterceptor newAwsHeadersInterceptor(RemoteOptions options) {
+        return new AwsCredentialsClientInterceptor(options.remoteCacheAwsId, options.remoteCacheAwsSecret);
   }
 
   private static Metadata newMetadataForHeaders(List<Entry<String, String>> headers) {

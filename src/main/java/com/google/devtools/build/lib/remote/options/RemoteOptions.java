@@ -164,6 +164,28 @@ public final class RemoteOptions extends OptionsBase {
   public List<Entry<String, String>> remoteCacheHeaders;
 
   @Option(
+      name = "remote_cache_aws_id",
+      defaultValue = "null",
+      documentationCategory = OptionDocumentationCategory.REMOTE,
+      effectTags = {OptionEffectTag.UNKNOWN},
+      help =
+          "Specify a header that will be included in cache requests: "
+              + "--remote_cache_aws_id=Name=Value. "
+      )
+  public String remoteCacheAwsId;
+
+  @Option(
+      name = "remote_cache_aws_secret",
+      defaultValue = "null",
+      documentationCategory = OptionDocumentationCategory.REMOTE,
+      effectTags = {OptionEffectTag.UNKNOWN},
+      help =
+          "Specify a header that will be included in cache requests: "
+              + "--remote_cache_aws_id=Name=Value. "
+      )
+  public String remoteCacheAwsSecret;
+
+  @Option(
       name = "remote_exec_header",
       converter = Converters.AssignmentConverter.class,
       defaultValue = "null",
