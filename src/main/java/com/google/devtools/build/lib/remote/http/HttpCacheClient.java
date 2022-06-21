@@ -89,6 +89,8 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 import javax.net.ssl.SSLEngine;
 
+import java.util.Optional;
+
 /**
  * Implementation of {@link RemoteCacheClient} that can talk to a HTTP/1.1 backend.
  *
@@ -129,6 +131,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
   private final boolean useTls;
   private final boolean verifyDownloads;
   private final DigestUtil digestUtil;
+  private final AuthAndTLSOptions authAndTlsOptions;
 
   private final Object closeLock = new Object();
 
@@ -282,6 +285,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
     this.creds = creds;
     this.timeoutSeconds = timeoutSeconds;
     this.extraHttpHeaders = extraHttpHeaders;
+    this.authAndTlsOptions = authAndTlsOptions;
     this.verifyDownloads = verifyDownloads;
     this.digestUtil = digestUtil;
   }
@@ -321,7 +325,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                 pipeline.addLast(new HttpRequestEncoder());
                 pipeline.addLast(new ChunkedWriteHandler());
                 synchronized (credentialsLock) {
-                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders));
+                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, authAndTlsOptions));
                 }
 
                 if (!channel.eventLoop().inEventLoop()) {
@@ -388,7 +392,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                 pipeline.addLast(new HttpClientCodec());
                 pipeline.addLast("inflater", new HttpContentDecompressor());
                 synchronized (credentialsLock) {
-                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders));
+                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, authAndTlsOptions));
                 }
 
                 if (!channel.eventLoop().inEventLoop()) {
@@ -483,6 +487,8 @@ public final class HttpCacheClient implements RemoteCacheClient {
             out.flush();
           }
         };
+
+    System.err.println(digest);
     DownloadCommand downloadCmd = new DownloadCommand(uri, casDownload, digest, wrappedOut);
     SettableFuture<Void> outerF = SettableFuture.create();
     acquireDownloadChannel()

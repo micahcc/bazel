@@ -186,6 +186,7 @@ public final class RemoteModule extends BlazeModule {
       DigestUtil digestUtil,
       ServerCapabilitiesRequirement requirement)
       throws AbruptExitException, IOException {
+      System.err.println("verifyServerCapabilities");
     RemoteServerCapabilities rsc =
         new RemoteServerCapabilities(
             remoteOptions.remoteInstanceName,
@@ -213,6 +214,7 @@ public final class RemoteModule extends BlazeModule {
       AuthAndTLSOptions authAndTlsOptions,
       RemoteOptions remoteOptions,
       DigestUtil digestUtil) {
+      System.err.println("initHttpAndDiskCache");
     Credentials creds;
     try {
       creds =
@@ -228,6 +230,7 @@ public final class RemoteModule extends BlazeModule {
     }
     RemoteCacheClient cacheClient;
     try {
+      System.err.println("create RemoteCacheClient");
       cacheClient =
           RemoteCacheClientFactory.create(
               remoteOptions,
@@ -239,6 +242,7 @@ public final class RemoteModule extends BlazeModule {
       handleInitFailure(env, e, Code.CACHE_INIT_FAILURE);
       return;
     }
+      System.err.println("new RemoteCache");
     RemoteCache remoteCache = new RemoteCache(cacheClient, remoteOptions, digestUtil);
     actionContextProvider =
         RemoteActionContextProvider.createForRemoteCaching(
@@ -247,6 +251,7 @@ public final class RemoteModule extends BlazeModule {
 
   @Override
   public void beforeCommand(CommandEnvironment env) throws AbruptExitException {
+      System.err.println("beforeCommand");
     Preconditions.checkState(actionContextProvider == null, "actionContextProvider must be null");
     Preconditions.checkState(actionInputFetcher == null, "actionInputFetcher must be null");
     Preconditions.checkState(remoteOptions == null, "remoteOptions must be null");
@@ -254,6 +259,7 @@ public final class RemoteModule extends BlazeModule {
     RemoteOptions remoteOptions = env.getOptions().getOptions(RemoteOptions.class);
     if (remoteOptions == null) {
       // Quit if no supported command is being used. See getCommandOptions for details.
+      System.err.println("remoteOptions == null");
       return;
     }
 
@@ -288,6 +294,7 @@ public final class RemoteModule extends BlazeModule {
 
     if (!enableDiskCache && !enableHttpCache && !enableGrpcCache && !enableRemoteExecution) {
       // Quit if no remote caching or execution was enabled.
+      System.err.println("no disk cache && !enableHttpCache");
       actionContextProvider =
           RemoteActionContextProvider.createForPlaceholder(env, retryScheduler, digestUtil);
       return;
@@ -390,9 +397,6 @@ public final class RemoteModule extends BlazeModule {
       ImmutableList.Builder<ClientInterceptor> interceptors = ImmutableList.builder();
       interceptors.add(TracingMetadataUtils.newCacheHeadersInterceptor(remoteOptions));
 
-      if(remoteOptions.remoteCacheAwsSecret != null &&  remoteOptions.remoteCacheAwsId != null) {
-        interceptors.add(TracingMetadataUtils.newAwsHeadersInterceptor(remoteOptions));
-      }
       if (loggingInterceptor != null) {
         interceptors.add(loggingInterceptor);
       }

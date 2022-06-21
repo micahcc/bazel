@@ -14,6 +14,7 @@
 package com.google.devtools.build.lib.remote.http;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import com.google.common.flogger.GoogleLogger;
 
 import com.google.auth.Credentials;
 import com.google.common.collect.ImmutableList;
@@ -34,9 +35,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import io.netty.handler.codec.http.HttpMethod;
+import com.google.common.flogger.GoogleLogger;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.util.Base64;
+import java.util.Calendar;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+import java.util.TimeZone;
+
+
+import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
+
 /** Common functionality shared by concrete classes. */
 abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelInboundHandler<T>
     implements ChannelOutboundHandler {
+
+  private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
 
   private static final String USER_AGENT_VALUE =
       "bazel/" + BlazeVersionInfo.instance().getVersion();
@@ -44,10 +60,13 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
   private final Credentials credentials;
   private final ImmutableList<Entry<String, String>> extraHttpHeaders;
 
+  private AuthAndTLSOptions authAndTlsOptions;
+
   public AbstractHttpHandler(
-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
     this.credentials = credentials;
     this.extraHttpHeaders = extraHttpHeaders;
+    this.authAndTlsOptions = authAndTlsOptions;
   }
 
   protected ChannelPromise userPromise;
@@ -58,6 +77,80 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
       userPromise.setFailure(t);
     }
     userPromise = null;
+  }
+
+  static private String getServerTime() {
+      Calendar calendar = Calendar.getInstance();
+      SimpleDateFormat dateFormat = new SimpleDateFormat(
+              "EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+      dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+      return dateFormat.format(calendar.getTime());
+  }
+
+
+  static private String hmacSha1(String key, String data) {
+      try {
+        Mac mac = Mac.getInstance("HmacSHA1");
+        SecretKeySpec secret = new SecretKeySpec(key.getBytes(),"HmacSHA1");
+        mac.init(secret);
+        byte[] digest = mac.doFinal(data.getBytes());
+        String out = Base64.getEncoder().encodeToString(digest);
+        return out;
+      } catch (Exception e) {
+        logger.atWarning().withCause(e).log("failed to setup aws creds");
+        return null;
+      }
+  }
+
+  protected void addAwsAuthenticationHeaders(HttpRequest request, URI uri) throws IOException {
+    System.err.println("addAwsAuthenticationHeaders");
+      if(authAndTlsOptions.awsId == null || authAndTlsOptions.awsSecret == null) {
+          return;
+      }
+
+        // x-amz-date
+        String dateStr = getServerTime();
+        request.headers().add("x-amz-date", dateStr);
+
+        String toHash;
+        //   StringToSign = HTTP-Verb + "\n" +
+        //   Content-MD5 + "\n" +
+        //   Content-Type + "\n" +
+        //   Date + "\n" +
+        //   CanonicalizedAmzHeaders +
+        //   CanonicalizedResource;
+        if(request.getMethod() == HttpMethod.GET) {
+            // GET\n
+            // \n
+            // \n
+            // Tue, 27 Mar 2007 19:36:42 +0000\n
+            // /photos/blob
+            toHash = "GET\n\n\n" + dateStr + uri.getPath();
+        } else if(request.getMethod() == HttpMethod.PUT) {
+            // PUT\n
+            // \n
+            // application/octet-stream\n
+            // Tue, 27 Mar 2007 21:15:45 +0000\n
+            // /photos/blob
+            toHash = "PUT\n\napplication/octet-stream\n" + dateStr + uri.getPath();
+        } else {
+            return;
+        }
+
+        String sigStr = hmacSha1(authAndTlsOptions.awsSecret, toHash);
+        if(sigStr == null) {
+            return;
+        }
+        // Signature = Base64(
+        //  HMAC-SHA1(
+        //     UTF-8-Encoding-Of(YourSecretAccessKey),
+        //     UTF-8-Encoding-Of( StringToSign )
+        //  )
+        // );
+        // Authorization = "AWS" + " " + AWSAccessKeyId + ":" + Signature;
+        System.err.println(sigStr);
+
+        request.headers().add("AWS " + authAndTlsOptions.awsId, sigStr);
   }
 
   protected void addCredentialHeaders(HttpRequest request, URI uri) throws IOException {

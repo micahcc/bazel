@@ -617,6 +617,7 @@ public final class RemoteOptions extends OptionsBase {
 
   /** Returns {@code true} if remote cache or disk cache is enabled. */
   public boolean isRemoteCacheEnabled() {
+    System.err.println("isRemoteCacheEnabled");
     return !Strings.isNullOrEmpty(remoteCache)
         || !(diskCache == null || diskCache.isEmpty())
         || isRemoteExecutionEnabled();
@@ -635,6 +636,7 @@ public final class RemoteOptions extends OptionsBase {
     boolean hasExecProperties = !remoteDefaultExecProperties.isEmpty();
     boolean hasPlatformProperties = !remoteDefaultPlatformProperties.isEmpty();
 
+    System.err.println("getRemoteDefaultExecProperties");
     if (hasExecProperties && hasPlatformProperties) {
       throw new UserExecException(
           createFailureDetail(

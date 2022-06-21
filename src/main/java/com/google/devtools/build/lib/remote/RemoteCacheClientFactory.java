@@ -88,6 +88,7 @@ public final class RemoteCacheClientFactory {
       DigestUtil digestUtil) {
     Preconditions.checkNotNull(options.remoteCache, "remoteCache");
 
+    System.err.println("createHttp: " + options.remoteCache);
     try {
       URI uri = URI.create(options.remoteCache);
       Preconditions.checkArgument(
