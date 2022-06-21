@@ -1,3 +1,8 @@
+Patch to add Amazon Web Services S3 support for remote caching.
+
+Patch is `./aws_support.patch`
+
+
 # [Bazel](https://bazel.build)
 
 *{Fast, Correct} - Choose two*

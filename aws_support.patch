@@ -1,0 +1,301 @@
+diff --git a/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java b/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java
+index 2a54e3d7f9..e95a9b4b26 100644
+--- a/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java
++++ b/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java
+@@ -131,4 +131,23 @@ public class AuthAndTLSOptions extends OptionsBase {
+               + "granularity; it is an error to set a value less than one second. If keep-alive "
+               + "pings are disabled, then this setting is ignored.")
+   public Duration grpcKeepaliveTimeout;
++
++
++  @Option(
++    name = "aws_id",
++    defaultValue = "null",
++    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
++    effectTags = {OptionEffectTag.UNKNOWN},
++    help = " "
++  )
++  public String awsId;
++
++  @Option(
++    name = "aws_secret",
++    defaultValue = "null",
++    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
++    effectTags = {OptionEffectTag.UNKNOWN},
++    help = " "
++  )
++  public String awsSecret;
+ }
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
+index 1931782d39..51b5700931 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
+@@ -389,6 +389,7 @@ public final class RemoteModule extends BlazeModule {
+     if (cacheChannel == null) {
+       ImmutableList.Builder<ClientInterceptor> interceptors = ImmutableList.builder();
+       interceptors.add(TracingMetadataUtils.newCacheHeadersInterceptor(remoteOptions));
++
+       if (loggingInterceptor != null) {
+         interceptors.add(loggingInterceptor);
+       }
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java b/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java
+index 54634edb21..1c16c3f3b9 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java
+@@ -17,37 +17,54 @@ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import com.google.auth.Credentials;
+ import com.google.common.collect.ImmutableList;
++import com.google.common.flogger.GoogleLogger;
+ import com.google.common.io.BaseEncoding;
+ import com.google.devtools.build.lib.analysis.BlazeVersionInfo;
++import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
+ import io.netty.channel.ChannelHandlerContext;
+ import io.netty.channel.ChannelOutboundHandler;
+ import io.netty.channel.ChannelPromise;
+ import io.netty.channel.SimpleChannelInboundHandler;
+ import io.netty.handler.codec.http.HttpHeaderNames;
++import io.netty.handler.codec.http.HttpMethod;
+ import io.netty.handler.codec.http.HttpObject;
+ import io.netty.handler.codec.http.HttpRequest;
+ import java.io.IOException;
+ import java.net.SocketAddress;
+ import java.net.URI;
+ import java.nio.channels.ClosedChannelException;
++import java.text.SimpleDateFormat;
++import java.util.Base64;
++import java.util.Calendar;
+ import java.util.List;
++import java.util.Locale;
+ import java.util.Map;
+ import java.util.Map.Entry;
++import java.util.TimeZone;
++import javax.crypto.Mac;
++import javax.crypto.spec.SecretKeySpec;
+ 
+ /** Common functionality shared by concrete classes. */
+ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelInboundHandler<T>
+     implements ChannelOutboundHandler {
+ 
++  private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
++
+   private static final String USER_AGENT_VALUE =
+       "bazel/" + BlazeVersionInfo.instance().getVersion();
+ 
+   private final Credentials credentials;
+   private final ImmutableList<Entry<String, String>> extraHttpHeaders;
+ 
++  private AuthAndTLSOptions authAndTlsOptions;
++
+   public AbstractHttpHandler(
+-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
++      Credentials credentials,
++      ImmutableList<Entry<String, String>> extraHttpHeaders,
++      AuthAndTLSOptions authAndTlsOptions) {
+     this.credentials = credentials;
+     this.extraHttpHeaders = extraHttpHeaders;
++    this.authAndTlsOptions = authAndTlsOptions;
+   }
+ 
+   protected ChannelPromise userPromise;
+@@ -60,6 +77,75 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
+     userPromise = null;
+   }
+ 
++  private static String getServerTime() {
++    Calendar calendar = Calendar.getInstance();
++    SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
++    dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
++    return dateFormat.format(calendar.getTime());
++  }
++
++  private static String hmacSha1(String key, String data) {
++    try {
++      Mac mac = Mac.getInstance("HmacSHA1");
++      SecretKeySpec secret = new SecretKeySpec(key.getBytes(), "HmacSHA1");
++      mac.init(secret);
++      byte[] digest = mac.doFinal(data.getBytes());
++      String out = Base64.getEncoder().encodeToString(digest);
++      return out;
++    } catch (Exception e) {
++      logger.atWarning().withCause(e).log("failed to setup aws creds");
++      return "";
++    }
++  }
++
++  protected void addAwsAuthenticationHeaders(HttpRequest request, String path) throws IOException {
++    if (authAndTlsOptions.awsId == null || authAndTlsOptions.awsSecret == null) {
++      return;
++    }
++
++    // x-amz-date
++    String dateStr = getServerTime();
++    request.headers().add("x-amz-date", dateStr);
++
++    String toHash;
++    //   StringToSign = HTTP-Verb + "\n" +
++    //   Content-MD5 + "\n" +  (optional)
++    //   Content-Type + "\n" + (optional)
++    //   Date + "\n" +
++    //   CanonicalizedAmzHeaders +
++    //   CanonicalizedResource;
++    if (request.getMethod() == HttpMethod.GET) {
++      // GET\n
++      // \n
++      // \n
++      // Tue, 27 Mar 2007 19:36:42 +0000\n
++      // /photos/blob
++      toHash = "GET\n\n\n\nx-amz-date:" + dateStr + "\n" + path;
++    } else if (request.getMethod() == HttpMethod.PUT) {
++      // PUT\n
++      // \n
++      // application/octet-stream\n
++      // Tue, 27 Mar 2007 21:15:45 +0000\n
++      // /photos/blob
++      toHash = "PUT\n\n\n\nx-amz-date:" + dateStr + "\n" + path;
++    } else {
++      return;
++    }
++
++    String sigStr = hmacSha1(authAndTlsOptions.awsSecret, toHash);
++    if (sigStr == "") {
++      return;
++    }
++    // Signature = Base64(
++    //  HMAC-SHA1(
++    //     UTF-8-Encoding-Of(YourSecretAccessKey),
++    //     UTF-8-Encoding-Of( StringToSign )
++    //  )
++    // );
++    // Authorization = "AWS" + " " + AWSAccessKeyId + ":" + Signature;
++    request.headers().add("Authorization", "AWS " + authAndTlsOptions.awsId + ":" + sigStr);
++  }
++
+   protected void addCredentialHeaders(HttpRequest request, URI uri) throws IOException {
+     String userInfo = uri.getUserInfo();
+     if (userInfo != null) {
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java b/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java
+index 6c6d4cc6f8..73df449a64 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java
+@@ -89,6 +89,8 @@ import javax.annotation.Nullable;
+ import javax.annotation.concurrent.GuardedBy;
+ import javax.net.ssl.SSLEngine;
+ 
++import java.util.Optional;
++
+ /**
+  * Implementation of {@link RemoteCacheClient} that can talk to a HTTP/1.1 backend.
+  *
+@@ -129,6 +131,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+   private final boolean useTls;
+   private final boolean verifyDownloads;
+   private final DigestUtil digestUtil;
++  private final AuthAndTLSOptions authAndTlsOptions;
+ 
+   private final Object closeLock = new Object();
+ 
+@@ -282,6 +285,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+     this.creds = creds;
+     this.timeoutSeconds = timeoutSeconds;
+     this.extraHttpHeaders = extraHttpHeaders;
++    this.authAndTlsOptions = authAndTlsOptions;
+     this.verifyDownloads = verifyDownloads;
+     this.digestUtil = digestUtil;
+   }
+@@ -321,7 +325,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+                 pipeline.addLast(new HttpRequestEncoder());
+                 pipeline.addLast(new ChunkedWriteHandler());
+                 synchronized (credentialsLock) {
+-                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders));
++                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, authAndTlsOptions));
+                 }
+ 
+                 if (!channel.eventLoop().inEventLoop()) {
+@@ -388,7 +392,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+                 pipeline.addLast(new HttpClientCodec());
+                 pipeline.addLast("inflater", new HttpContentDecompressor());
+                 synchronized (credentialsLock) {
+-                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders));
++                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, authAndTlsOptions));
+                 }
+ 
+                 if (!channel.eventLoop().inEventLoop()) {
+@@ -483,6 +487,8 @@ public final class HttpCacheClient implements RemoteCacheClient {
+             out.flush();
+           }
+         };
++
++    System.err.println(digest);
+     DownloadCommand downloadCmd = new DownloadCommand(uri, casDownload, digest, wrappedOut);
+     SettableFuture<Void> outerF = SettableFuture.create();
+     acquireDownloadChannel()
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java b/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java
+index 50d83d138a..846891b283 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java
+@@ -39,6 +39,8 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ import java.util.Map.Entry;
+ 
++import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
++
+ /** ChannelHandler for downloads. */
+ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
+ 
+@@ -53,8 +55,8 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
+   private String path;
+ 
+   public HttpDownloadHandler(
+-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
+-    super(credentials, extraHttpHeaders);
++      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
++    super(credentials, extraHttpHeaders, authAndTlsOptions);
+   }
+ 
+   @Override
+@@ -137,10 +139,12 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
+     DownloadCommand cmd = (DownloadCommand) msg;
+     out = cmd.out();
+     path = constructPath(cmd.uri(), cmd.digest().getHash(), cmd.casDownload());
++
+     HttpRequest request = buildRequest(path, constructHost(cmd.uri()));
+     addCredentialHeaders(request, cmd.uri());
+     addExtraRemoteHeaders(request);
+     addUserAgentHeader(request);
++    addAwsAuthenticationHeaders(request, path);
+     ctx.writeAndFlush(request)
+         .addListener(
+             (f) -> {
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java b/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java
+index 21e1a1f8b1..db66cfda01 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java
+@@ -36,6 +36,8 @@ import io.netty.util.internal.StringUtil;
+ import java.io.IOException;
+ import java.util.Map.Entry;
+ 
++import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
++
+ /** ChannelHandler for uploads. */
+ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
+ 
+@@ -45,8 +47,8 @@ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
+   private long contentLength;
+ 
+   public HttpUploadHandler(
+-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
+-    super(credentials, extraHttpHeaders);
++      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
++    super(credentials, extraHttpHeaders, authAndTlsOptions);
+   }
+ 
+   @SuppressWarnings("FutureReturnValueIgnored")
+@@ -103,6 +105,7 @@ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
+     addCredentialHeaders(request, cmd.uri());
+     addExtraRemoteHeaders(request);
+     addUserAgentHeader(request);
++    addAwsAuthenticationHeaders(request, path);
+     HttpChunkedInput body = buildBody(cmd);
+     ctx.writeAndFlush(request)
+         .addListener(

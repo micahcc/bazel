@@ -389,6 +389,7 @@ public final class RemoteModule extends BlazeModule {
     if (cacheChannel == null) {
       ImmutableList.Builder<ClientInterceptor> interceptors = ImmutableList.builder();
       interceptors.add(TracingMetadataUtils.newCacheHeadersInterceptor(remoteOptions));
+
       if (loggingInterceptor != null) {
         interceptors.add(loggingInterceptor);
       }
