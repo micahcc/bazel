@@ -105,7 +105,7 @@ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
     addCredentialHeaders(request, cmd.uri());
     addExtraRemoteHeaders(request);
     addUserAgentHeader(request);
-    addAwsAuthenticationHeaders(request, cmd.uri());
+    addAwsAuthenticationHeaders(request, path);
     HttpChunkedInput body = buildBody(cmd);
     ctx.writeAndFlush(request)
         .addListener(

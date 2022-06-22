@@ -144,7 +144,7 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
     addCredentialHeaders(request, cmd.uri());
     addExtraRemoteHeaders(request);
     addUserAgentHeader(request);
-    addAwsAuthenticationHeaders(request, cmd.uri());
+    addAwsAuthenticationHeaders(request, path);
     ctx.writeAndFlush(request)
         .addListener(
             (f) -> {
