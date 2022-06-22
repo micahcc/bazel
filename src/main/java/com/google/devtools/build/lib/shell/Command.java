@@ -370,7 +370,7 @@ public final class Command implements DescribableExecutionUnit {
   }
 
   private FutureCommandResult doExecute(
-      InputStream stdinInput, OutErrConsumers outErrConsumers, boolean killSubprocessOnInterrupt) 
+      InputStream stdinInput, OutErrConsumers outErrConsumers, boolean killSubprocessOnInterrupt)
           throws ExecFailedException {
     Preconditions.checkNotNull(stdinInput, "stdinInput");
     logCommand();
@@ -410,7 +410,7 @@ public final class Command implements DescribableExecutionUnit {
   }
 
   private static void processInput(InputStream stdinInput, Subprocess process) {
-    logger.atFiner().log(stdinInput.toString());
+    logger.atFiner().log("%s", stdinInput.toString());
     try (OutputStream out = process.getOutputStream()) {
       ByteStreams.copy(stdinInput, out);
     } catch (IOException ioe) {

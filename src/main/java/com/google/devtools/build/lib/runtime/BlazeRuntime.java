@@ -946,7 +946,7 @@ public final class BlazeRuntime implements BugReport.BlazeRuntimeInterface {
     boolean shutdownDone = false;
 
     try {
-      logger.atInfo().log(
+      logger.atInfo().log("%s",
           SafeRequestLogging.getRequestLogString(commandLineOptions.getOtherArgs()));
       BlazeCommandResult result =
           dispatcher.exec(

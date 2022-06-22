@@ -131,4 +131,23 @@ public class AuthAndTLSOptions extends OptionsBase {
               + "granularity; it is an error to set a value less than one second. If keep-alive "
               + "pings are disabled, then this setting is ignored.")
   public Duration grpcKeepaliveTimeout;
+
+
+  @Option(
+    name = "aws_id",
+    defaultValue = "null",
+    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
+    effectTags = {OptionEffectTag.UNKNOWN},
+    help = " "
+  )
+  public String awsId;
+
+  @Option(
+    name = "aws_secret",
+    defaultValue = "null",
+    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
+    effectTags = {OptionEffectTag.UNKNOWN},
+    help = " "
+  )
+  public String awsSecret;
 }

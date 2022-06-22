@@ -232,7 +232,8 @@ public final class RemoteModule extends BlazeModule {
               remoteOptions,
               creds,
               Preconditions.checkNotNull(env.getWorkingDirectory(), "workingDirectory"),
-              digestUtil);
+              digestUtil,
+              authAndTlsOptions);
     } catch (IOException e) {
       handleInitFailure(env, e, Code.CACHE_INIT_FAILURE);
       return;
@@ -387,6 +388,7 @@ public final class RemoteModule extends BlazeModule {
     if (cacheChannel == null) {
       ImmutableList.Builder<ClientInterceptor> interceptors = ImmutableList.builder();
       interceptors.add(TracingMetadataUtils.newCacheHeadersInterceptor(remoteOptions));
+
       if (loggingInterceptor != null) {
         interceptors.add(loggingInterceptor);
       }
@@ -868,7 +870,7 @@ public final class RemoteModule extends BlazeModule {
       failure = e;
       failureCode = Code.RPC_LOG_FAILURE;
       failureMessage = "Partially wrote rpc log file";
-      logger.atWarning().withCause(e).log(failureMessage);
+      logger.atWarning().withCause(e).log("%s", failureMessage);
     }
 
     executorService = null;
