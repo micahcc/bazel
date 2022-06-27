@@ -26,7 +26,6 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.devtools.build.lib.remote.common.CacheNotFoundException;
 import com.google.devtools.build.lib.remote.common.RemoteActionExecutionContext;
-import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
 import com.google.devtools.build.lib.remote.common.RemoteCacheClient;
 import com.google.devtools.build.lib.remote.util.DigestOutputStream;
 import com.google.devtools.build.lib.remote.util.DigestUtil;
@@ -133,7 +132,8 @@ public final class HttpCacheClient implements RemoteCacheClient {
   private final boolean useTls;
   private final boolean verifyDownloads;
   private final DigestUtil digestUtil;
-  private final AuthAndTLSOptions authAndTlsOptions;
+  private final String awsId;
+  private final String awsSecret;
 
   private final Object closeLock = new Object();
 
@@ -156,7 +156,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
       ImmutableList<Entry<String, String>> extraHttpHeaders,
       DigestUtil digestUtil,
       @Nullable final Credentials creds,
-      AuthAndTLSOptions authAndTlsOptions)
+      String awsId, String awsSecret)
       throws Exception {
     return new HttpCacheClient(
         NioEventLoopGroup::new,
@@ -168,7 +168,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
         extraHttpHeaders,
         digestUtil,
         creds,
-        authAndTlsOptions,
+        awsId, awsSecret,
         null);
   }
 
@@ -181,7 +181,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
       ImmutableList<Entry<String, String>> extraHttpHeaders,
       DigestUtil digestUtil,
       @Nullable final Credentials creds,
-      AuthAndTLSOptions authAndTlsOptions)
+      String awsId, String awsSecret)
       throws Exception {
 
     if (KQueue.isAvailable()) {
@@ -195,7 +195,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
           extraHttpHeaders,
           digestUtil,
           creds,
-          authAndTlsOptions,
+          awsId, awsSecret,
           domainSocketAddress);
     } else if (Epoll.isAvailable()) {
       return new HttpCacheClient(
@@ -208,7 +208,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
           extraHttpHeaders,
           digestUtil,
           creds,
-          authAndTlsOptions,
+          awsId, awsSecret,
           domainSocketAddress);
     } else {
       throw new Exception("Unix domain sockets are unsupported on this platform");
@@ -225,7 +225,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
       ImmutableList<Entry<String, String>> extraHttpHeaders,
       DigestUtil digestUtil,
       @Nullable final Credentials creds,
-      AuthAndTLSOptions authAndTlsOptions,
+      String awsId, String awsSecret,
       @Nullable SocketAddress socketAddress)
       throws Exception {
     useTls = uri.getScheme().equals("https");
@@ -242,6 +242,9 @@ public final class HttpCacheClient implements RemoteCacheClient {
               uri.getFragment());
     }
     this.uri = uri;
+    this.awsId = awsId;
+    this.awsSecret = awsSecret;
+
     if (socketAddress == null) {
       socketAddress = new InetSocketAddress(uri.getHost(), uri.getPort());
     }
@@ -291,7 +294,6 @@ public final class HttpCacheClient implements RemoteCacheClient {
     this.creds = creds;
     this.timeoutSeconds = timeoutSeconds;
     this.extraHttpHeaders = extraHttpHeaders;
-    this.authAndTlsOptions = authAndTlsOptions;
     this.verifyDownloads = verifyDownloads;
     this.digestUtil = digestUtil;
   }
@@ -331,7 +333,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                 pipeline.addLast(new HttpRequestEncoder());
                 pipeline.addLast(new ChunkedWriteHandler());
                 synchronized (credentialsLock) {
-                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, authAndTlsOptions));
+                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, awsId, awsSecret));
                 }
 
                 if (!channel.eventLoop().inEventLoop()) {
@@ -398,7 +400,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                 pipeline.addLast(new HttpClientCodec());
                 pipeline.addLast("inflater", new HttpContentDecompressor());
                 synchronized (credentialsLock) {
-                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, authAndTlsOptions));
+                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, awsId, awsSecret));
                 }
 
                 if (!channel.eventLoop().inEventLoop()) {

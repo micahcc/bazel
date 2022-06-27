@@ -132,22 +132,13 @@ public class AuthAndTLSOptions extends OptionsBase {
               + "pings are disabled, then this setting is ignored.")
   public Duration grpcKeepaliveTimeout;
 
-
   @Option(
-    name = "aws_id",
+    name = "aws_profile",
     defaultValue = "null",
     documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
     effectTags = {OptionEffectTag.UNKNOWN},
-    help = " "
+    help = "Name of profile in ~/.aws/credentials to use for S3 caching"
   )
-  public String awsId;
+  public String awsProfile;
 
-  @Option(
-    name = "aws_secret",
-    defaultValue = "null",
-    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
-    effectTags = {OptionEffectTag.UNKNOWN},
-    help = " "
-  )
-  public String awsSecret;
 }

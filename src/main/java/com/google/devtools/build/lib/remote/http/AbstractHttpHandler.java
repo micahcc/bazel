@@ -56,15 +56,17 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
   private final Credentials credentials;
   private final ImmutableList<Entry<String, String>> extraHttpHeaders;
 
-  private AuthAndTLSOptions authAndTlsOptions;
+  private String awsId;
+  private String awsSecret;
 
   public AbstractHttpHandler(
       Credentials credentials,
       ImmutableList<Entry<String, String>> extraHttpHeaders,
-      AuthAndTLSOptions authAndTlsOptions) {
+      String awsId, String awsSecret) {
     this.credentials = credentials;
     this.extraHttpHeaders = extraHttpHeaders;
-    this.authAndTlsOptions = authAndTlsOptions;
+    this.awsId = awsId;
+    this.awsSecret = awsSecret;
   }
 
   protected ChannelPromise userPromise;
@@ -99,7 +101,7 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
   }
 
   protected void addAwsAuthenticationHeaders(HttpRequest request, String path) throws IOException {
-    if (authAndTlsOptions.awsId == null || authAndTlsOptions.awsSecret == null) {
+    if (awsId == null || awsSecret == null) {
       return;
     }
 
@@ -132,7 +134,7 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
       return;
     }
 
-    String sigStr = hmacSha1(authAndTlsOptions.awsSecret, toHash);
+    String sigStr = hmacSha1(awsSecret, toHash);
     if (sigStr == "") {
       return;
     }
@@ -143,7 +145,7 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
     //  )
     // );
     // Authorization = "AWS" + " " + AWSAccessKeyId + ":" + Signature;
-    request.headers().add("Authorization", "AWS " + authAndTlsOptions.awsId + ":" + sigStr);
+    request.headers().add("Authorization", "AWS " + awsId + ":" + sigStr);
   }
 
   protected void addCredentialHeaders(HttpRequest request, URI uri) throws IOException {

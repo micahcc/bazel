@@ -12,32 +12,23 @@ index ea261a9ad2..5c8421e9e7 100644
  
      AnalysisResult result;
 diff --git a/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java b/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java
-index 2a54e3d7f9..e95a9b4b26 100644
+index 2a54e3d7f9..c88e24d825 100644
 --- a/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java
 +++ b/src/main/java/com/google/devtools/build/lib/authandtls/AuthAndTLSOptions.java
-@@ -131,4 +131,23 @@ public class AuthAndTLSOptions extends OptionsBase {
+@@ -131,4 +131,14 @@ public class AuthAndTLSOptions extends OptionsBase {
                + "granularity; it is an error to set a value less than one second. If keep-alive "
                + "pings are disabled, then this setting is ignored.")
    public Duration grpcKeepaliveTimeout;
 +
-+
 +  @Option(
-+    name = "aws_id",
++    name = "aws_profile",
 +    defaultValue = "null",
 +    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
 +    effectTags = {OptionEffectTag.UNKNOWN},
-+    help = " "
++    help = "Name of profile in ~/.aws/credentials to use for S3 caching"
 +  )
-+  public String awsId;
++  public String awsProfile;
 +
-+  @Option(
-+    name = "aws_secret",
-+    defaultValue = "null",
-+    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
-+    effectTags = {OptionEffectTag.UNKNOWN},
-+    help = " "
-+  )
-+  public String awsSecret;
  }
 diff --git a/src/main/java/com/google/devtools/build/lib/buildeventservice/BuildEventServiceModule.java b/src/main/java/com/google/devtools/build/lib/buildeventservice/BuildEventServiceModule.java
 index 463551c9de..b352779c72 100644
@@ -195,7 +186,7 @@ index 9a9b9db54d..ff80e0985a 100644
    }
  }
 diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteCacheClientFactory.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteCacheClientFactory.java
-index 57741a8f28..a034a4c55d 100644
+index 57741a8f28..d0c3a680dd 100644
 --- a/src/main/java/com/google/devtools/build/lib/remote/RemoteCacheClientFactory.java
 +++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteCacheClientFactory.java
 @@ -14,6 +14,7 @@
@@ -206,7 +197,63 @@ index 57741a8f28..a034a4c55d 100644
  import com.google.auth.Credentials;
  import com.google.common.base.Ascii;
  import com.google.common.base.Preconditions;
-@@ -56,15 +57,16 @@ public final class RemoteCacheClientFactory {
+@@ -31,6 +32,55 @@ import java.io.IOException;
+ import java.net.URI;
+ import javax.annotation.Nullable;
+ 
++import java.io.BufferedReader;
++import java.io.FileReader;
++import java.io.IOException;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
++
++class IniFile {
++
++    private Pattern  _section  = Pattern.compile( "\\s*\\[([^]]*)\\]\\s*" );
++    private Pattern  _keyValue = Pattern.compile( "\\s*([^=]*)=(.*)" );
++    private Map< String,
++            Map< String,
++            String >>  _entries  = new HashMap<>();
++
++    public IniFile( String path ) throws IOException {
++        try( BufferedReader br = new BufferedReader( new FileReader( path ))) {
++            String line;
++            String section = null;
++            while(( line = br.readLine()) != null ) {
++                Matcher m = _section.matcher( line );
++                if( m.matches()) {
++                    section = m.group( 1 ).trim();
++                }
++                else if( section != null ) {
++                    m = _keyValue.matcher( line );
++                    if( m.matches()) {
++                        String key   = m.group( 1 ).trim();
++                        String value = m.group( 2 ).trim();
++                        Map< String, String > kv = _entries.get( section );
++                        if( kv == null ) {
++                            _entries.put( section, kv = new HashMap<>());
++                        }
++                        kv.put( key, value );
++                    }
++                }
++            }
++        }
++    }
++
++    public String getString(String section, String key) throws IOException {
++        Map< String, String > kv = _entries.get( section );
++        if( kv == null ) {
++            throw new IOException("Failed to read INI key: " + key);
++        }
++        return kv.get( key );
++    }
++}
+ /**
+  * A factory class for providing a {@link RemoteCacheClient}. Currently implemented for HTTP and
+  * disk caching.
+@@ -56,15 +106,16 @@ public final class RemoteCacheClientFactory {
        RemoteOptions options,
        @Nullable Credentials creds,
        Path workingDirectory,
@@ -226,36 +273,53 @@ index 57741a8f28..a034a4c55d 100644
      }
      if (isDiskCache(options)) {
        return createDiskCache(
-@@ -80,7 +82,7 @@ public final class RemoteCacheClientFactory {
+@@ -80,7 +131,8 @@ public final class RemoteCacheClientFactory {
    }
  
    private static RemoteCacheClient createHttp(
 -      RemoteOptions options, Credentials creds, DigestUtil digestUtil) {
-+      RemoteOptions options, Credentials creds, DigestUtil digestUtil, AuthAndTLSOptions authAndTLSOptions) {
++      RemoteOptions options, Credentials creds, DigestUtil digestUtil,
++      AuthAndTLSOptions authAndTLSOptions) {
      Preconditions.checkNotNull(options.remoteCache, "remoteCache");
  
      try {
-@@ -99,7 +101,8 @@ public final class RemoteCacheClientFactory {
+@@ -99,11 +151,24 @@ public final class RemoteCacheClientFactory {
                options.remoteVerifyDownloads,
                ImmutableList.copyOf(options.remoteHeaders),
                digestUtil,
 -              creds);
 +              creds,
-+              authAndTLSOptions);
++              null, null);
          } else {
            throw new Exception("Remote cache proxy unsupported: " + options.remoteProxy);
          }
-@@ -111,7 +114,8 @@ public final class RemoteCacheClientFactory {
+       } else {
++        String awsId = null;
++        String awsSecret = null;
++        if(authAndTLSOptions.awsProfile != null) {
++            String home = System.getenv("HOME");
++            try {
++                IniFile iniFile = new IniFile(home +"/.aws/credentials");
++                awsId = iniFile.getString(authAndTLSOptions.awsProfile, "aws_access_key_id");
++                awsSecret = iniFile.getString(authAndTLSOptions.awsProfile, "aws_secret_access_key");
++            } catch(Exception e) {
++                throw new Exception("Failed to read aws profile: " + authAndTLSOptions.awsProfile + " from ~/.aws/credentials");
++            }
++        }
+         return HttpCacheClient.create(
+             uri,
+             Math.toIntExact(options.remoteTimeout.getSeconds()),
+@@ -111,7 +176,8 @@ public final class RemoteCacheClientFactory {
              options.remoteVerifyDownloads,
              ImmutableList.copyOf(options.remoteHeaders),
              digestUtil,
 -            creds);
 +            creds,
-+            authAndTLSOptions);
++            awsId, awsSecret);
        }
      } catch (Exception e) {
        throw new RuntimeException(e);
-@@ -137,7 +141,8 @@ public final class RemoteCacheClientFactory {
+@@ -137,7 +203,8 @@ public final class RemoteCacheClientFactory {
        PathFragment diskCachePath,
        RemoteOptions options,
        Credentials cred,
@@ -265,7 +329,7 @@ index 57741a8f28..a034a4c55d 100644
        throws IOException {
      Path cacheDir =
          workingDirectory.getRelative(Preconditions.checkNotNull(diskCachePath, "diskCachePath"));
-@@ -145,7 +150,7 @@ public final class RemoteCacheClientFactory {
+@@ -145,7 +212,7 @@ public final class RemoteCacheClientFactory {
        cacheDir.createDirectoryAndParents();
      }
  
@@ -275,10 +339,26 @@ index 57741a8f28..a034a4c55d 100644
          workingDirectory,
          diskCachePath,
 diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
-index 0e165d1521..f3fbb70a1e 100644
+index 0e165d1521..608feba349 100644
 --- a/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
 +++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
-@@ -232,7 +232,8 @@ public final class RemoteModule extends BlazeModule {
+@@ -115,6 +115,7 @@ import java.util.concurrent.ThreadFactory;
+ import java.util.concurrent.ThreadPoolExecutor;
+ import javax.annotation.Nullable;
+ 
++
+ /** RemoteModule provides distributed cache and remote execution for Bazel. */
+ public final class RemoteModule extends BlazeModule {
+ 
+@@ -212,6 +213,7 @@ public final class RemoteModule extends BlazeModule {
+       AuthAndTLSOptions authAndTlsOptions,
+       RemoteOptions remoteOptions,
+       DigestUtil digestUtil) {
++
+     Credentials creds;
+     try {
+       creds =
+@@ -232,7 +234,8 @@ public final class RemoteModule extends BlazeModule {
                remoteOptions,
                creds,
                Preconditions.checkNotNull(env.getWorkingDirectory(), "workingDirectory"),
@@ -288,7 +368,7 @@ index 0e165d1521..f3fbb70a1e 100644
      } catch (IOException e) {
        handleInitFailure(env, e, Code.CACHE_INIT_FAILURE);
        return;
-@@ -387,6 +388,7 @@ public final class RemoteModule extends BlazeModule {
+@@ -387,6 +390,7 @@ public final class RemoteModule extends BlazeModule {
      if (cacheChannel == null) {
        ImmutableList.Builder<ClientInterceptor> interceptors = ImmutableList.builder();
        interceptors.add(TracingMetadataUtils.newCacheHeadersInterceptor(remoteOptions));
@@ -296,7 +376,7 @@ index 0e165d1521..f3fbb70a1e 100644
        if (loggingInterceptor != null) {
          interceptors.add(loggingInterceptor);
        }
-@@ -868,7 +870,7 @@ public final class RemoteModule extends BlazeModule {
+@@ -868,7 +872,7 @@ public final class RemoteModule extends BlazeModule {
        failure = e;
        failureCode = Code.RPC_LOG_FAILURE;
        failureMessage = "Partially wrote rpc log file";
@@ -306,10 +386,10 @@ index 0e165d1521..f3fbb70a1e 100644
  
      executorService = null;
 diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java b/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java
-index 54634edb21..1c16c3f3b9 100644
+index 54634edb21..100c3747df 100644
 --- a/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java
 +++ b/src/main/java/com/google/devtools/build/lib/remote/http/AbstractHttpHandler.java
-@@ -17,37 +17,54 @@ import static java.nio.charset.StandardCharsets.UTF_8;
+@@ -17,37 +17,56 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  
  import com.google.auth.Credentials;
  import com.google.common.collect.ImmutableList;
@@ -352,20 +432,22 @@ index 54634edb21..1c16c3f3b9 100644
    private final Credentials credentials;
    private final ImmutableList<Entry<String, String>> extraHttpHeaders;
  
-+  private AuthAndTLSOptions authAndTlsOptions;
++  private String awsId;
++  private String awsSecret;
 +
    public AbstractHttpHandler(
 -      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
 +      Credentials credentials,
 +      ImmutableList<Entry<String, String>> extraHttpHeaders,
-+      AuthAndTLSOptions authAndTlsOptions) {
++      String awsId, String awsSecret) {
      this.credentials = credentials;
      this.extraHttpHeaders = extraHttpHeaders;
-+    this.authAndTlsOptions = authAndTlsOptions;
++    this.awsId = awsId;
++    this.awsSecret = awsSecret;
    }
  
    protected ChannelPromise userPromise;
-@@ -60,6 +77,75 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
+@@ -60,6 +79,75 @@ abstract class AbstractHttpHandler<T extends HttpObject> extends SimpleChannelIn
      userPromise = null;
    }
  
@@ -391,7 +473,7 @@ index 54634edb21..1c16c3f3b9 100644
 +  }
 +
 +  protected void addAwsAuthenticationHeaders(HttpRequest request, String path) throws IOException {
-+    if (authAndTlsOptions.awsId == null || authAndTlsOptions.awsSecret == null) {
++    if (awsId == null || awsSecret == null) {
 +      return;
 +    }
 +
@@ -424,7 +506,7 @@ index 54634edb21..1c16c3f3b9 100644
 +      return;
 +    }
 +
-+    String sigStr = hmacSha1(authAndTlsOptions.awsSecret, toHash);
++    String sigStr = hmacSha1(awsSecret, toHash);
 +    if (sigStr == "") {
 +      return;
 +    }
@@ -435,7 +517,7 @@ index 54634edb21..1c16c3f3b9 100644
 +    //  )
 +    // );
 +    // Authorization = "AWS" + " " + AWSAccessKeyId + ":" + Signature;
-+    request.headers().add("Authorization", "AWS " + authAndTlsOptions.awsId + ":" + sigStr);
++    request.headers().add("Authorization", "AWS " + awsId + ":" + sigStr);
 +  }
 +
    protected void addCredentialHeaders(HttpRequest request, URI uri) throws IOException {
@@ -454,18 +536,10 @@ index 9ce71c7c52..67e7bd0a46 100644
          "//src/main/java/com/google/devtools/build/lib/remote/util",
          "//src/main/java/com/google/devtools/build/lib/vfs",
 diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java b/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java
-index 21b471e963..d87996e264 100644
+index 21b471e963..42f53e770c 100644
 --- a/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java
 +++ b/src/main/java/com/google/devtools/build/lib/remote/http/HttpCacheClient.java
-@@ -26,6 +26,7 @@ import com.google.common.util.concurrent.MoreExecutors;
- import com.google.common.util.concurrent.SettableFuture;
- import com.google.devtools.build.lib.remote.common.CacheNotFoundException;
- import com.google.devtools.build.lib.remote.common.RemoteActionExecutionContext;
-+import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
- import com.google.devtools.build.lib.remote.common.RemoteCacheClient;
- import com.google.devtools.build.lib.remote.util.DigestOutputStream;
- import com.google.devtools.build.lib.remote.util.DigestUtil;
-@@ -88,6 +89,8 @@ import javax.annotation.Nullable;
+@@ -88,6 +88,8 @@ import javax.annotation.Nullable;
  import javax.annotation.concurrent.GuardedBy;
  import javax.net.ssl.SSLEngine;
  
@@ -474,11 +548,12 @@ index 21b471e963..d87996e264 100644
  /**
   * Implementation of {@link RemoteCacheClient} that can talk to a HTTP/1.1 backend.
   *
-@@ -130,6 +133,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+@@ -130,6 +132,8 @@ public final class HttpCacheClient implements RemoteCacheClient {
    private final boolean useTls;
    private final boolean verifyDownloads;
    private final DigestUtil digestUtil;
-+  private final AuthAndTLSOptions authAndTlsOptions;
++  private final String awsId;
++  private final String awsSecret;
  
    private final Object closeLock = new Object();
  
@@ -488,7 +563,7 @@ index 21b471e963..d87996e264 100644
        DigestUtil digestUtil,
 -      @Nullable final Credentials creds)
 +      @Nullable final Credentials creds,
-+      AuthAndTLSOptions authAndTlsOptions)
++      String awsId, String awsSecret)
        throws Exception {
      return new HttpCacheClient(
          NioEventLoopGroup::new,
@@ -496,7 +571,7 @@ index 21b471e963..d87996e264 100644
          extraHttpHeaders,
          digestUtil,
          creds,
-+        authAndTlsOptions,
++        awsId, awsSecret,
          null);
    }
  
@@ -506,7 +581,7 @@ index 21b471e963..d87996e264 100644
        DigestUtil digestUtil,
 -      @Nullable final Credentials creds)
 +      @Nullable final Credentials creds,
-+      AuthAndTLSOptions authAndTlsOptions)
++      String awsId, String awsSecret)
        throws Exception {
  
      if (KQueue.isAvailable()) {
@@ -514,7 +589,7 @@ index 21b471e963..d87996e264 100644
            extraHttpHeaders,
            digestUtil,
            creds,
-+          authAndTlsOptions,
++          awsId, awsSecret,
            domainSocketAddress);
      } else if (Epoll.isAvailable()) {
        return new HttpCacheClient(
@@ -522,7 +597,7 @@ index 21b471e963..d87996e264 100644
            extraHttpHeaders,
            digestUtil,
            creds,
-+          authAndTlsOptions,
++          awsId, awsSecret,
            domainSocketAddress);
      } else {
        throw new Exception("Unix domain sockets are unsupported on this platform");
@@ -530,37 +605,39 @@ index 21b471e963..d87996e264 100644
        ImmutableList<Entry<String, String>> extraHttpHeaders,
        DigestUtil digestUtil,
        @Nullable final Credentials creds,
-+      AuthAndTLSOptions authAndTlsOptions,
++      String awsId, String awsSecret,
        @Nullable SocketAddress socketAddress)
        throws Exception {
      useTls = uri.getScheme().equals("https");
-@@ -281,6 +291,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
-     this.creds = creds;
-     this.timeoutSeconds = timeoutSeconds;
-     this.extraHttpHeaders = extraHttpHeaders;
-+    this.authAndTlsOptions = authAndTlsOptions;
-     this.verifyDownloads = verifyDownloads;
-     this.digestUtil = digestUtil;
-   }
-@@ -320,7 +331,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+@@ -232,6 +242,9 @@ public final class HttpCacheClient implements RemoteCacheClient {
+               uri.getFragment());
+     }
+     this.uri = uri;
++    this.awsId = awsId;
++    this.awsSecret = awsSecret;
++
+     if (socketAddress == null) {
+       socketAddress = new InetSocketAddress(uri.getHost(), uri.getPort());
+     }
+@@ -320,7 +333,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                  pipeline.addLast(new HttpRequestEncoder());
                  pipeline.addLast(new ChunkedWriteHandler());
                  synchronized (credentialsLock) {
 -                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders));
-+                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, authAndTlsOptions));
++                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, awsId, awsSecret));
                  }
  
                  if (!channel.eventLoop().inEventLoop()) {
-@@ -387,7 +398,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+@@ -387,7 +400,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                  pipeline.addLast(new HttpClientCodec());
                  pipeline.addLast("inflater", new HttpContentDecompressor());
                  synchronized (credentialsLock) {
 -                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders));
-+                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, authAndTlsOptions));
++                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, awsId, awsSecret));
                  }
  
                  if (!channel.eventLoop().inEventLoop()) {
-@@ -482,6 +493,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
+@@ -482,6 +495,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
              out.flush();
            }
          };
@@ -569,7 +646,7 @@ index 21b471e963..d87996e264 100644
      SettableFuture<Void> outerF = SettableFuture.create();
      acquireDownloadChannel()
 diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java b/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java
-index 50d83d138a..846891b283 100644
+index 50d83d138a..9971e7d0cf 100644
 --- a/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java
 +++ b/src/main/java/com/google/devtools/build/lib/remote/http/HttpDownloadHandler.java
 @@ -39,6 +39,8 @@ import java.io.IOException;
@@ -587,8 +664,8 @@ index 50d83d138a..846891b283 100644
    public HttpDownloadHandler(
 -      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
 -    super(credentials, extraHttpHeaders);
-+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
-+    super(credentials, extraHttpHeaders, authAndTlsOptions);
++      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
++    super(credentials, extraHttpHeaders, awsId, awsSecret);
    }
  
    @Override
@@ -606,7 +683,7 @@ index 50d83d138a..846891b283 100644
          .addListener(
              (f) -> {
 diff --git a/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java b/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java
-index 21e1a1f8b1..db66cfda01 100644
+index 21e1a1f8b1..faf489bb30 100644
 --- a/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java
 +++ b/src/main/java/com/google/devtools/build/lib/remote/http/HttpUploadHandler.java
 @@ -36,6 +36,8 @@ import io.netty.util.internal.StringUtil;
@@ -624,8 +701,8 @@ index 21e1a1f8b1..db66cfda01 100644
    public HttpUploadHandler(
 -      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
 -    super(credentials, extraHttpHeaders);
-+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
-+    super(credentials, extraHttpHeaders, authAndTlsOptions);
++      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
++    super(credentials, extraHttpHeaders, awsId, awsSecret);
    }
  
    @SuppressWarnings("FutureReturnValueIgnored")

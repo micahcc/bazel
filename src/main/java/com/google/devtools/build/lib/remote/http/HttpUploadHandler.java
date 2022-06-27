@@ -47,8 +47,8 @@ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
   private long contentLength;
 
   public HttpUploadHandler(
-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
-    super(credentials, extraHttpHeaders, authAndTlsOptions);
+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
+    super(credentials, extraHttpHeaders, awsId, awsSecret);
   }
 
   @SuppressWarnings("FutureReturnValueIgnored")

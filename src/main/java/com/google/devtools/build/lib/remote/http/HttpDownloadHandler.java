@@ -55,8 +55,8 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
   private String path;
 
   public HttpDownloadHandler(
-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, AuthAndTLSOptions authAndTlsOptions) {
-    super(credentials, extraHttpHeaders, authAndTlsOptions);
+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
+    super(credentials, extraHttpHeaders, awsId, awsSecret);
   }
 
   @Override
