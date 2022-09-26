@@ -131,4 +131,14 @@ public class AuthAndTLSOptions extends OptionsBase {
               + "granularity; it is an error to set a value less than one second. If keep-alive "
               + "pings are disabled, then this setting is ignored.")
   public Duration grpcKeepaliveTimeout;
+
+  @Option(
+    name = "aws_profile",
+    defaultValue = "null",
+    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
+    effectTags = {OptionEffectTag.UNKNOWN},
+    help = "Name of profile in ~/.aws/credentials to use for S3 caching"
+  )
+  public String awsProfile;
+
 }

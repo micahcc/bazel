@@ -53,8 +53,8 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
   private String path;
 
   public HttpDownloadHandler(
-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
-    super(credentials, extraHttpHeaders);
+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
+    super(credentials, extraHttpHeaders, awsId, awsSecret);
   }
 
   @Override
@@ -141,6 +141,7 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
     addCredentialHeaders(request, cmd.uri());
     addExtraRemoteHeaders(request);
     addUserAgentHeader(request);
+    addAwsAuthenticationHeaders(request, path);
     ctx.writeAndFlush(request)
         .addListener(
             (f) -> {
