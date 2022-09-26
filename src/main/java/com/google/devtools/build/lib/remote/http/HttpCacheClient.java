@@ -89,6 +89,8 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 import javax.net.ssl.SSLEngine;
 
+import java.util.Optional;
+
 /**
  * Implementation of {@link RemoteCacheClient} that can talk to a HTTP/1.1 backend.
  *
@@ -129,6 +131,8 @@ public final class HttpCacheClient implements RemoteCacheClient {
   private final boolean useTls;
   private final boolean verifyDownloads;
   private final DigestUtil digestUtil;
+  private final String awsId;
+  private final String awsSecret;
 
   private final Object closeLock = new Object();
 
@@ -237,6 +241,9 @@ public final class HttpCacheClient implements RemoteCacheClient {
               uri.getFragment());
     }
     this.uri = uri;
+    this.awsId = awsId;
+    this.awsSecret = awsSecret;
+
     if (socketAddress == null) {
       socketAddress = new InetSocketAddress(uri.getHost(), uri.getPort());
     }
@@ -321,7 +328,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                 pipeline.addLast(new HttpRequestEncoder());
                 pipeline.addLast(new ChunkedWriteHandler());
                 synchronized (credentialsLock) {
-                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders));
+                  pipeline.addLast(new HttpUploadHandler(creds, extraHttpHeaders, awsId, awsSecret));
                 }
 
                 if (!channel.eventLoop().inEventLoop()) {
@@ -388,7 +395,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
                 pipeline.addLast(new HttpClientCodec());
                 pipeline.addLast("inflater", new HttpContentDecompressor());
                 synchronized (credentialsLock) {
-                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders));
+                  pipeline.addLast(new HttpDownloadHandler(creds, extraHttpHeaders, awsId, awsSecret));
                 }
 
                 if (!channel.eventLoop().inEventLoop()) {
@@ -483,6 +490,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
             out.flush();
           }
         };
+
     DownloadCommand downloadCmd = new DownloadCommand(uri, casDownload, digest, wrappedOut);
     SettableFuture<Void> outerF = SettableFuture.create();
     acquireDownloadChannel()
