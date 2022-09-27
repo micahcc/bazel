@@ -36,6 +36,8 @@ import io.netty.util.internal.StringUtil;
 import java.io.IOException;
 import java.util.Map.Entry;
 
+import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
+
 /** ChannelHandler for uploads. */
 final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
 
@@ -45,8 +47,8 @@ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
   private long contentLength;
 
   public HttpUploadHandler(
-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
-    super(credentials, extraHttpHeaders);
+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
+    super(credentials, extraHttpHeaders, awsId, awsSecret);
   }
 
   @SuppressWarnings("FutureReturnValueIgnored")
@@ -103,6 +105,7 @@ final class HttpUploadHandler extends AbstractHttpHandler<FullHttpResponse> {
     addCredentialHeaders(request, cmd.uri());
     addExtraRemoteHeaders(request);
     addUserAgentHeader(request);
+    addAwsAuthenticationHeaders(request, path);
     HttpChunkedInput body = buildBody(cmd);
     ctx.writeAndFlush(request)
         .addListener(

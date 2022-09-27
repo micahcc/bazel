@@ -226,4 +226,14 @@ public class AuthAndTLSOptions extends OptionsBase {
       return input;
     }
   }
+
+  @Option(
+    name = "aws_profile",
+    defaultValue = "null",
+    documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
+    effectTags = {OptionEffectTag.UNKNOWN},
+    help = "Name of profile in ~/.aws/credentials to use for S3 caching"
+  )
+  public String awsProfile;
+
 }

@@ -329,4 +329,3 @@ abstract class FileTransport implements BuildEventTransport {
     return writer.getFlushInterval();
   }
 }
-

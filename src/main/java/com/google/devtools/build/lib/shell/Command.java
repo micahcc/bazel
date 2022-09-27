@@ -370,7 +370,7 @@ public final class Command implements DescribableExecutionUnit {
   }
 
   private FutureCommandResult doExecute(
-      InputStream stdinInput, OutErrConsumers outErrConsumers, boolean killSubprocessOnInterrupt) 
+      InputStream stdinInput, OutErrConsumers outErrConsumers, boolean killSubprocessOnInterrupt)
           throws ExecFailedException {
     Preconditions.checkNotNull(stdinInput, "stdinInput");
     logCommand();

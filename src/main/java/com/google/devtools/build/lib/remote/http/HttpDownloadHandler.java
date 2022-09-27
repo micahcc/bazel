@@ -39,6 +39,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Map.Entry;
 
+import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
+
 /** ChannelHandler for downloads. */
 final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
 
@@ -53,8 +55,8 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
   private String path;
 
   public HttpDownloadHandler(
-      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders) {
-    super(credentials, extraHttpHeaders);
+      Credentials credentials, ImmutableList<Entry<String, String>> extraHttpHeaders, String awsId, String awsSecret) {
+    super(credentials, extraHttpHeaders, awsId, awsSecret);
   }
 
   @Override
@@ -137,10 +139,12 @@ final class HttpDownloadHandler extends AbstractHttpHandler<HttpObject> {
     DownloadCommand cmd = (DownloadCommand) msg;
     out = cmd.out();
     path = constructPath(cmd.uri(), cmd.digest().getHash(), cmd.casDownload());
+
     HttpRequest request = buildRequest(path, constructHost(cmd.uri()));
     addCredentialHeaders(request, cmd.uri());
     addExtraRemoteHeaders(request);
     addUserAgentHeader(request);
+    addAwsAuthenticationHeaders(request, path);
     ctx.writeAndFlush(request)
         .addListener(
             (f) -> {

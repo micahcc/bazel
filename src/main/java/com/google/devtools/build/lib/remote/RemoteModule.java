@@ -114,6 +114,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import javax.annotation.Nullable;
 
+
 /** RemoteModule provides distributed cache and remote execution for Bazel. */
 public final class RemoteModule extends BlazeModule {
 
@@ -211,6 +212,7 @@ public final class RemoteModule extends BlazeModule {
       AuthAndTLSOptions authAndTlsOptions,
       RemoteOptions remoteOptions,
       DigestUtil digestUtil) {
+
     Credentials creds;
     try {
       creds =
@@ -392,6 +394,7 @@ public final class RemoteModule extends BlazeModule {
     if (cacheChannel == null) {
       ImmutableList.Builder<ClientInterceptor> interceptors = ImmutableList.builder();
       interceptors.add(TracingMetadataUtils.newCacheHeadersInterceptor(remoteOptions));
+
       if (loggingInterceptor != null) {
         interceptors.add(loggingInterceptor);
       }
